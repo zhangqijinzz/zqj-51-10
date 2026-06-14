@@ -47,43 +47,52 @@ export default function PricingCalc() {
 
   const priceResults = useMemo(() => {
     const map: Record<string, DiscountCalculationResult> = {};
+    const bundleRules = discountRules.filter((r) => r.type === 'bundle');
+    const hasBundle = bundleRules.length > 0;
+
     products.forEach((p) => {
-      map[p.id] = PricingService.calculateFinalPrice(p, discountRules, 1);
+      if (hasBundle && p.stock > 1) {
+        const bundleRule = bundleRules[0];
+        const minBundleQty = (bundleRule.bundleCount || 2) + bundleRule.value;
+        const calcQty = Math.min(p.stock, Math.max(minBundleQty, 3));
+        map[p.id] = PricingService.calculateFinalPrice(p, discountRules, calcQty);
+      } else {
+        map[p.id] = PricingService.calculateFinalPrice(p, discountRules, 1);
+      }
     });
     return map;
   }, [products, discountRules]);
 
+  const discountRevenueEstimate = useMemo(() => {
+    return PricingService.estimateDiscountedRevenue(products, discountRules);
+  }, [products, discountRules]);
+
   const stats = useMemo(() => {
     let totalCost = 0;
-    let totalRevenue = 0;
-    let totalDiscountedRevenue = 0;
     let totalStock = 0;
 
     products.forEach((p) => {
       totalCost += p.cost * p.stock;
-      totalRevenue += p.price * p.stock;
       totalStock += p.stock;
-      const result = priceResults[p.id];
-      if (result) {
-        totalDiscountedRevenue += result.finalPrice * p.stock;
-      }
     });
 
+    const totalRevenue = discountRevenueEstimate.totalOriginalRevenue;
+    const totalDiscountedRevenue = discountRevenueEstimate.totalDiscountedRevenue;
+    const totalDiscount = discountRevenueEstimate.totalDiscount;
     const totalProfit = totalRevenue - totalCost;
     const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-    const totalDiscount = totalRevenue - totalDiscountedRevenue;
 
     return {
       totalCost: Math.round(totalCost * 100) / 100,
-      totalRevenue: Math.round(totalRevenue * 100) / 100,
+      totalRevenue,
       totalProfit: Math.round(totalProfit * 100) / 100,
       avgMargin: Math.round(avgMargin * 100) / 100,
       totalStock,
       productCount: products.length,
-      totalDiscountedRevenue: Math.round(totalDiscountedRevenue * 100) / 100,
-      totalDiscount: Math.round(totalDiscount * 100) / 100,
+      totalDiscountedRevenue,
+      totalDiscount,
     };
-  }, [products, priceResults]);
+  }, [products, discountRevenueEstimate]);
 
   const addNewDiscount = () => {
     const rule: DiscountRule = {
@@ -403,9 +412,14 @@ export default function PricingCalc() {
                                     ¥{product.price.toFixed(2)}
                                   </span>
                                   <span className="text-[10px] text-green-600">
-                                    省¥{discountResult.totalDiscount.toFixed(2)}
+                                    省¥{discountResult.unitDiscount.toFixed(2)}
                                   </span>
                                 </div>
+                              )}
+                              {discountResult?.isBundled && (
+                                <span className="text-[10px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded">
+                                  买{discountResult.bundleQuantity}件折算
+                                </span>
                               )}
                               {discountResult?.belowCost && (
                                 <span className="text-[10px] text-red-500 flex items-center gap-0.5">
@@ -793,12 +807,30 @@ export default function PricingCalc() {
                     ¥{selectedProductDiscount.result.costPrice.toFixed(2)}
                   </span>
                 </div>
+                {selectedProductDiscount.result.isBundled && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-500">折算数量</span>
+                    <span className="text-sm text-purple-600">
+                      {selectedProductDiscount.result.bundleQuantity} 件
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">优惠金额</span>
+                  <span className="text-sm text-gray-500">
+                    {selectedProductDiscount.result.isBundled ? '单件优惠' : '优惠金额'}
+                  </span>
                   <span className="text-sm font-medium text-green-600">
-                    -¥{selectedProductDiscount.result.totalDiscount.toFixed(2)}
+                    -¥{selectedProductDiscount.result.unitDiscount.toFixed(2)}
                   </span>
                 </div>
+                {selectedProductDiscount.result.isBundled && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-500">总优惠</span>
+                    <span className="text-sm font-medium text-green-600">
+                      -¥{selectedProductDiscount.result.totalDiscount.toFixed(2)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between pt-2 border-t border-dashed border-gray-200">
                   <span className="text-sm font-bold text-gray-800">预估到手价</span>
                   <span

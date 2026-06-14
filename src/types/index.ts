@@ -58,9 +58,12 @@ export interface DiscountCalculationResult {
   originalPrice: number;
   finalPrice: number;
   totalDiscount: number;
+  unitDiscount: number;
   steps: DiscountApplicationStep[];
   belowCost: boolean;
   costPrice: number;
+  isBundled: boolean;
+  bundleQuantity: number;
 }
 
 export interface Scene {

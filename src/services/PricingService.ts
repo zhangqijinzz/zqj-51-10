@@ -53,8 +53,8 @@ export class PricingService {
     let currentPrice = originalPrice;
     const steps: DiscountApplicationStep[] = [];
 
-    const applicableRules = discountRules.filter((r) => r.type !== 'bundle');
-    const sortedRules = this.sortDiscountsByPriority(applicableRules);
+    const priceRules = discountRules.filter((r) => r.type !== 'bundle');
+    const sortedRules = this.sortDiscountsByPriority(priceRules);
 
     sortedRules.forEach((rule) => {
       const stepOriginalPrice = currentPrice;
@@ -88,34 +88,79 @@ export class PricingService {
 
     let finalPrice = currentPrice;
     let totalDiscount = originalPrice - finalPrice;
+    let unitDiscount = totalDiscount;
+    let isBundled = false;
+    const bundleRules = discountRules.filter((r) => r.type === 'bundle');
 
-    if (quantity > 1) {
-      const bundleRules = discountRules.filter((r) => r.type === 'bundle');
-      if (bundleRules.length > 0) {
-        const bundleRule = bundleRules[0];
-        const bundleTotal = this.calculateBundlePrice(currentPrice, bundleRule, quantity);
-        const perUnitPrice = bundleTotal / quantity;
-        const beforeBundlePrice = finalPrice;
-        finalPrice = Math.round(perUnitPrice * 100) / 100;
-        totalDiscount = originalPrice * quantity - bundleTotal;
-        steps.push({
-          ruleId: bundleRule.id,
-          ruleName: bundleRule.name,
-          type: 'bundle',
-          originalPrice: beforeBundlePrice * quantity,
-          discountedPrice: bundleTotal,
-          description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（${quantity}件折算单件）`,
-        });
-      }
+    if (quantity > 1 && bundleRules.length > 0) {
+      const bundleRule = bundleRules[0];
+      const bundleTotal = this.calculateBundlePrice(currentPrice, bundleRule, quantity);
+      const perUnitPrice = bundleTotal / quantity;
+      finalPrice = Math.round(perUnitPrice * 100) / 100;
+      totalDiscount = originalPrice * quantity - bundleTotal;
+      unitDiscount = originalPrice - finalPrice;
+      isBundled = true;
+
+      steps.push({
+        ruleId: bundleRule.id,
+        ruleName: bundleRule.name,
+        type: 'bundle',
+        originalPrice: currentPrice * quantity,
+        discountedPrice: bundleTotal,
+        description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（${quantity}件折算单件）`,
+      });
     }
 
     return {
       originalPrice,
       finalPrice,
       totalDiscount: Math.round(totalDiscount * 100) / 100,
+      unitDiscount: Math.round(unitDiscount * 100) / 100,
       steps,
       belowCost: finalPrice < costPrice,
       costPrice,
+      isBundled,
+      bundleQuantity: isBundled ? quantity : 1,
+    };
+  }
+
+  static calculateBundledTotalPrice(
+    product: Product,
+    discountRules: DiscountRule[],
+    quantity: number
+  ): { totalPrice: number; unitPrice: number; totalDiscount: number; steps: DiscountApplicationStep[] } {
+    const priceRules = discountRules.filter((r) => r.type !== 'bundle');
+    const bundleRules = discountRules.filter((r) => r.type === 'bundle');
+
+    const perUnitResult = this.calculateFinalPrice(product, priceRules, 1);
+    const priceAfterDiscounts = perUnitResult.finalPrice;
+    const steps: DiscountApplicationStep[] = [...perUnitResult.steps];
+
+    let totalPrice = priceAfterDiscounts * quantity;
+    let totalDiscount = (product.price - priceAfterDiscounts) * quantity;
+
+    if (quantity > 1 && bundleRules.length > 0) {
+      const bundleRule = bundleRules[0];
+      const beforeBundleTotal = totalPrice;
+      totalPrice = this.calculateBundlePrice(priceAfterDiscounts, bundleRule, quantity);
+      const bundleDiscount = beforeBundleTotal - totalPrice;
+      totalDiscount += bundleDiscount;
+
+      steps.push({
+        ruleId: bundleRule.id,
+        ruleName: bundleRule.name,
+        type: 'bundle',
+        originalPrice: beforeBundleTotal,
+        discountedPrice: totalPrice,
+        description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（共${quantity}件）`,
+      });
+    }
+
+    return {
+      totalPrice: Math.round(totalPrice * 100) / 100,
+      unitPrice: Math.round((totalPrice / quantity) * 100) / 100,
+      totalDiscount: Math.round(totalDiscount * 100) / 100,
+      steps,
     };
   }
 
@@ -199,6 +244,43 @@ export class PricingService {
     return conflicts;
   }
 
+  static estimateDiscountedRevenue(
+    products: Product[],
+    discountRules: DiscountRule[]
+  ): {
+    totalOriginalRevenue: number;
+    totalDiscountedRevenue: number;
+    totalDiscount: number;
+    perProduct: Record<string, { original: number; discounted: number; discount: number }>;
+  } {
+    let totalOriginalRevenue = 0;
+    let totalDiscountedRevenue = 0;
+    const perProduct: Record<string, { original: number; discounted: number; discount: number }> = {};
+
+    products.forEach((p) => {
+      if (p.stock <= 0) return;
+
+      const original = p.price * p.stock;
+      totalOriginalRevenue += original;
+
+      const bundledResult = this.calculateBundledTotalPrice(p, discountRules, p.stock);
+      totalDiscountedRevenue += bundledResult.totalPrice;
+
+      perProduct[p.id] = {
+        original: Math.round(original * 100) / 100,
+        discounted: Math.round(bundledResult.totalPrice * 100) / 100,
+        discount: Math.round((original - bundledResult.totalPrice) * 100) / 100,
+      };
+    });
+
+    return {
+      totalOriginalRevenue: Math.round(totalOriginalRevenue * 100) / 100,
+      totalDiscountedRevenue: Math.round(totalDiscountedRevenue * 100) / 100,
+      totalDiscount: Math.round((totalOriginalRevenue - totalDiscountedRevenue) * 100) / 100,
+      perProduct,
+    };
+  }
+
   static calculateTotalRevenue(
     products: Product[],
     soldQuantities: Record<string, number>,
@@ -209,17 +291,12 @@ export class PricingService {
 
     Object.entries(soldQuantities).forEach(([productId, qty]) => {
       const product = products.find((p) => p.id === productId);
-      if (!product) return;
+      if (!product || qty <= 0) return;
 
       cost += product.cost * qty;
 
-      const finalResult = this.calculateFinalPrice(product, discounts, qty);
-      if (qty > 1 && discounts.some((d) => d.type === 'bundle')) {
-        const bundleRule = discounts.find((d) => d.type === 'bundle')!;
-        revenue += this.calculateBundlePrice(finalResult.finalPrice, bundleRule, qty);
-      } else {
-        revenue += finalResult.finalPrice * qty;
-      }
+      const bundledResult = this.calculateBundledTotalPrice(product, discounts, qty);
+      revenue += bundledResult.totalPrice;
     });
 
     return {
