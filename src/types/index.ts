@@ -37,6 +37,32 @@ export interface DiscountRule {
   bundleCount?: number;
 }
 
+export interface DiscountConflict {
+  ruleIds: string[];
+  severity: 'warning' | 'danger';
+  message: string;
+  affectedProducts: string[];
+  details: string;
+}
+
+export interface DiscountApplicationStep {
+  ruleId: string;
+  ruleName: string;
+  type: DiscountType;
+  originalPrice: number;
+  discountedPrice: number;
+  description: string;
+}
+
+export interface DiscountCalculationResult {
+  originalPrice: number;
+  finalPrice: number;
+  totalDiscount: number;
+  steps: DiscountApplicationStep[];
+  belowCost: boolean;
+  costPrice: number;
+}
+
 export interface Scene {
   id: string;
   name: string;
