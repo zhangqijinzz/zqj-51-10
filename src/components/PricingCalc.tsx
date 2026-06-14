@@ -54,8 +54,12 @@ export default function PricingCalc() {
       if (hasBundle && p.stock > 1) {
         const bundleRule = bundleRules[0];
         const minBundleQty = (bundleRule.bundleCount || 2) + bundleRule.value;
-        const calcQty = Math.min(p.stock, Math.max(minBundleQty, 3));
-        map[p.id] = PricingService.calculateFinalPrice(p, discountRules, calcQty);
+        if (p.stock >= minBundleQty) {
+          const calcQty = Math.min(p.stock, Math.max(minBundleQty, 3));
+          map[p.id] = PricingService.calculateFinalPrice(p, discountRules, calcQty);
+        } else {
+          map[p.id] = PricingService.calculateFinalPrice(p, discountRules, 1);
+        }
       } else {
         map[p.id] = PricingService.calculateFinalPrice(p, discountRules, 1);
       }

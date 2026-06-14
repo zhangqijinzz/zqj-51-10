@@ -95,20 +95,26 @@ export class PricingService {
     if (quantity > 1 && bundleRules.length > 0) {
       const bundleRule = bundleRules[0];
       const bundleTotal = this.calculateBundlePrice(currentPrice, bundleRule, quantity);
-      const perUnitPrice = bundleTotal / quantity;
-      finalPrice = Math.round(perUnitPrice * 100) / 100;
-      totalDiscount = originalPrice * quantity - bundleTotal;
-      unitDiscount = originalPrice - finalPrice;
-      isBundled = true;
+      const bundleSets = bundleRule.bundleCount
+        ? Math.floor(quantity / (bundleRule.bundleCount + bundleRule.value))
+        : 0;
 
-      steps.push({
-        ruleId: bundleRule.id,
-        ruleName: bundleRule.name,
-        type: 'bundle',
-        originalPrice: currentPrice * quantity,
-        discountedPrice: bundleTotal,
-        description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（${quantity}件折算单件）`,
-      });
+      if (bundleSets > 0) {
+        const perUnitPrice = bundleTotal / quantity;
+        finalPrice = Math.round(perUnitPrice * 100) / 100;
+        totalDiscount = originalPrice * quantity - bundleTotal;
+        unitDiscount = originalPrice - finalPrice;
+        isBundled = true;
+
+        steps.push({
+          ruleId: bundleRule.id,
+          ruleName: bundleRule.name,
+          type: 'bundle',
+          originalPrice: currentPrice * quantity,
+          discountedPrice: bundleTotal,
+          description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（${quantity}件折算单件）`,
+        });
+      }
     }
 
     return {
@@ -141,19 +147,25 @@ export class PricingService {
 
     if (quantity > 1 && bundleRules.length > 0) {
       const bundleRule = bundleRules[0];
-      const beforeBundleTotal = totalPrice;
-      totalPrice = this.calculateBundlePrice(priceAfterDiscounts, bundleRule, quantity);
-      const bundleDiscount = beforeBundleTotal - totalPrice;
-      totalDiscount += bundleDiscount;
+      const bundleSets = bundleRule.bundleCount
+        ? Math.floor(quantity / (bundleRule.bundleCount + bundleRule.value))
+        : 0;
 
-      steps.push({
-        ruleId: bundleRule.id,
-        ruleName: bundleRule.name,
-        type: 'bundle',
-        originalPrice: beforeBundleTotal,
-        discountedPrice: totalPrice,
-        description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（共${quantity}件）`,
-      });
+      if (bundleSets > 0) {
+        const beforeBundleTotal = totalPrice;
+        totalPrice = this.calculateBundlePrice(priceAfterDiscounts, bundleRule, quantity);
+        const bundleDiscount = beforeBundleTotal - totalPrice;
+        totalDiscount += bundleDiscount;
+
+        steps.push({
+          ruleId: bundleRule.id,
+          ruleName: bundleRule.name,
+          type: 'bundle',
+          originalPrice: beforeBundleTotal,
+          discountedPrice: totalPrice,
+          description: `买 ${bundleRule.bundleCount} 送 ${bundleRule.value}（共${quantity}件）`,
+        });
+      }
     }
 
     return {
